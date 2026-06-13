@@ -1,0 +1,5 @@
+# WgcDB
+
+```bash
+cargo run
+```
