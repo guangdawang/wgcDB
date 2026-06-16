@@ -1,20 +1,42 @@
+use super::condition::{check_condition, compare_values, extract_conditions, Condition};
 use super::ExecutionResult;
 use crate::database::Database;
 use sqlparser::ast::*;
+use std::cmp::Ordering;
 
 pub fn execute_select(db: &mut Database, query: &Query) -> Result<ExecutionResult, String> {
+    let SetExpr::Select(select) = &*query.body else {
+        return Err("Only simple SELECT".into());
+    };
     let Select {
         projection,
         from,
         selection,
         ..
-    } = match &*query.body {
-        SetExpr::Select(select) => select.as_ref(),
-        _ => return Err("Only simple SELECT".into()),
-    };
+    } = select.as_ref();
 
-    if !matches!(projection[0], SelectItem::Wildcard(_)) {
-        return Err("Only SELECT * supported".into());
+    // ORDER BY 和 LIMIT 在 Query 层级
+    let order_by = &query.order_by;           // Option<OrderBy>
+    let limit_clause = &query.limit_clause;   // Option<LimitClause>
+
+    // 解析投影列
+    let mut projected_cols: Vec<String> = Vec::new();
+    let mut is_wildcard = false;
+    for item in projection {
+        match item {
+            SelectItem::Wildcard(_) => {
+                is_wildcard = true;
+                break;
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                if let Expr::Identifier(ident) = expr {
+                    projected_cols.push(ident.value.clone());
+                } else {
+                    return Err("Only column names or * supported in SELECT".into());
+                }
+            }
+            _ => return Err("Only column names or * supported in SELECT".into()),
+        }
     }
 
     let table_name = match &from[0].relation {
@@ -23,71 +45,163 @@ pub fn execute_select(db: &mut Database, query: &Query) -> Result<ExecutionResul
     };
 
     let table = db.tables.get(&table_name).ok_or("Table not found")?;
+    let all_columns = table.columns.clone();
 
-    // ---- 解析 WHERE 子句 ----
-    let selection = match selection {
-        Some(expr) => expr,
-        None => return Err("WHERE clause required".into()),
-    };
-
-    let (filter_col, filter_val) = match selection {
-        Expr::BinaryOp { left, op, right } => {
-            if *op != BinaryOperator::Eq {
-                return Err("Only = supported".into());
+    if !is_wildcard {
+        for col in &projected_cols {
+            if !all_columns.contains(col) {
+                return Err(format!("Column {} not found", col));
             }
-            let col = if let Expr::Identifier(ident) = &**left {
-                ident.value.clone()
-            } else {
-                return Err("Left side must be column".into());
-            };
-            let val = match &**right {
-                Expr::Value(ValueWithSpan { value, .. }) => match value {
-                    Value::SingleQuotedString(s) => s.clone(),
-                    Value::Number(n, _) => n.clone(),
-                    _ => return Err("Unsupported literal".into()),
-                },
-                _ => return Err("Right side must be literal".into()),
-            };
-            (col, val)
         }
-        _ => return Err("WHERE must be binary op".into()),
-    };
-    // -------------------------
+    }
 
-    // 判断是否使用索引
-    let (rows, scanned, used_index) = if let Some(index) = table.indexes.get(&filter_col) {
-        let ids = index.get(&filter_val).cloned().unwrap_or_default();
-        let scanned = ids.len();
-        let rows = ids.iter().map(|&id| table.rows[id].clone()).collect();
-        (rows, scanned, true)
+    let conditions: Vec<Condition> = if let Some(where_expr) = selection {
+        extract_conditions(where_expr)?
     } else {
-        let col_idx = table
-            .columns
-            .iter()
-            .position(|c| c == &filter_col)
-            .ok_or("Column not found")?;
-        let mut rows = Vec::new();
-        for row in &table.rows {
-            if row[col_idx] == filter_val {
-                rows.push(row.clone());
-            }
-        }
-        (rows, table.rows.len(), false)
+        vec![]
     };
 
-    // 更新统计并可能自动建索引
-    let index_hint = db.stats.record_and_check(&table_name, &filter_col, used_index);
-    if let Some((tbl, col)) = index_hint {
-        if let Some(table) = db.tables.get_mut(&tbl) {
-            if !table.indexes.contains_key(&col) {
-                table.build_index(&col)?;
-                println!("⚡ 自动创建索引: {}.{}", tbl, col);
+    // 尝试使用索引（仅单列等值条件）
+    let mut used_index = false;
+    let mut scanned = 0;
+    let mut candidate_rows: Vec<usize> = Vec::new();
+
+    if conditions.len() == 1 && conditions[0].op == BinaryOperator::Eq {
+        let cond = &conditions[0];
+        if let Some(index) = table.indexes.get(&cond.col) {
+            candidate_rows = index.get(&cond.val).cloned().unwrap_or_default();
+            scanned = candidate_rows.len();
+            used_index = true;
+        }
+    }
+
+    if !used_index {
+        candidate_rows = (0..table.rows.len()).collect();
+        scanned = table.rows.len();
+    }
+
+    // 应用所有条件
+    let mut result_rows: Vec<Vec<String>> = Vec::new();
+    for &row_id in &candidate_rows {
+        let row = &table.rows[row_id];
+        let mut ok = true;
+        for cond in &conditions {
+            if !check_condition(row, &all_columns, cond)? {
+                ok = false;
+                break;
+            }
+        }
+        if ok {
+            if is_wildcard {
+                result_rows.push(row.clone());
+            } else {
+                let projected: Vec<String> = projected_cols
+                    .iter()
+                    .map(|c| {
+                        let idx = all_columns.iter().position(|x| x == c).unwrap();
+                        row[idx].clone()
+                    })
+                    .collect();
+                result_rows.push(projected);
+            }
+        }
+    }
+
+    // ORDER BY（支持单列 ASC/DESC）
+    if let Some(order_by) = order_by {
+        let exprs: &[OrderByExpr] = match &order_by.kind {
+            OrderByKind::Expressions(exprs) => exprs.as_slice(),
+            OrderByKind::All(_) => &[],
+        };
+        if exprs.len() == 1 {
+            let ob = &exprs[0];
+            let col_name = match &ob.expr {
+                Expr::Identifier(ident) => ident.value.clone(),
+                _ => return Err("ORDER BY only supports column name".into()),
+            };
+            let ascending = ob.options.asc.unwrap_or(true);
+            result_rows.sort_by(|a, b| {
+                if is_wildcard {
+                    let col_idx = all_columns.iter().position(|c| c == &col_name).unwrap_or(0);
+                    let va = &a[col_idx];
+                    let vb = &b[col_idx];
+                    if ascending {
+                        compare_values(va, vb)
+                    } else {
+                        compare_values(vb, va)
+                    }
+                } else {
+                    let pos = projected_cols.iter().position(|c| c == &col_name);
+                    match pos {
+                        Some(p) => {
+                            let va = &a[p];
+                            let vb = &b[p];
+                            if ascending {
+                                compare_values(va, vb)
+                            } else {
+                                compare_values(vb, va)
+                            }
+                        }
+                        None => Ordering::Equal,
+                    }
+                }
+            });
+        } else if !exprs.is_empty() {
+            return Err("Only single column ORDER BY supported".into());
+        }
+    }
+
+    // LIMIT
+    if let Some(limit_clause) = limit_clause {
+        match limit_clause {
+            LimitClause::LimitOffset { limit, .. } => {
+                if let Some(limit_expr) = limit {
+                    if let Expr::Value(ValueWithSpan {
+                        value: Value::Number(n, _),
+                        ..
+                    }) = limit_expr
+                    {
+                        let limit_num: usize =
+                            n.parse().map_err(|_| "Invalid LIMIT value".to_string())?;
+                        result_rows.truncate(limit_num);
+                    } else {
+                        return Err("LIMIT must be a number".into());
+                    }
+                }
+            }
+            LimitClause::OffsetCommaLimit { limit, .. } => {
+                if let Expr::Value(ValueWithSpan {
+                    value: Value::Number(n, _),
+                    ..
+                }) = limit
+                {
+                    let limit_num: usize =
+                        n.parse().map_err(|_| "Invalid LIMIT value".to_string())?;
+                    result_rows.truncate(limit_num);
+                } else {
+                    return Err("LIMIT must be a number".into());
+                }
+            }
+        }
+    }
+
+    // 自动索引统计
+    for cond in &conditions {
+        if cond.op == BinaryOperator::Eq {
+            let hint = db.stats.record_and_check(&table_name, &cond.col, used_index);
+            if let Some((tbl, col)) = hint {
+                if let Some(tbl_ref) = db.tables.get_mut(&tbl) {
+                    if !tbl_ref.indexes.contains_key(&col) {
+                        tbl_ref.build_index(&col)?;
+                        println!("⚡ 自动创建索引: {}.{}", tbl, col);
+                    }
+                }
             }
         }
     }
 
     Ok(ExecutionResult::Select {
-        rows,
+        rows: result_rows,
         scanned,
         used_index,
     })

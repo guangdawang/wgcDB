@@ -1,6 +1,7 @@
 mod create;
 mod insert;
 mod select;
+pub mod condition;   // 新增公开模块声明
 
 use crate::database::Database;
 use sqlparser::ast::Statement;
@@ -14,9 +15,9 @@ pub enum ExecutionResult {
     },
     Insert,
     CreateTable,
+    CreateIndex,
 }
 
-/// 解析并执行单条 SQL 语句
 pub fn execute_sql(db: &mut Database, sql: &str) -> Result<ExecutionResult, String> {
     let dialect = sqlparser::dialect::GenericDialect {};
     let ast = sqlparser::parser::Parser::parse_sql(&dialect, sql)
@@ -29,7 +30,9 @@ pub fn execute_sql(db: &mut Database, sql: &str) -> Result<ExecutionResult, Stri
     match &ast[0] {
         Statement::Query(query) => select::execute_select(db, query),
         Statement::Insert(_) => insert::execute_insert(db, &ast[0]),
-        Statement::CreateTable(_) => create::execute_create(db, &ast[0]),
+        Statement::CreateTable(_) | Statement::CreateIndex(_) => {
+            create::execute_create(db, &ast[0])
+        }
         _ => Err("Unsupported statement".into()),
     }
 }

@@ -21,7 +21,17 @@ impl Table {
         if values.len() != self.columns.len() {
             return Err("Column count mismatch".into());
         }
-        self.indexes.clear(); // 插入新数据后让已有索引失效（简单策略）
+        let new_row_id = self.rows.len();
+        // 维护现有索引：将新行加入每个索引的对应值列表中
+        for (col_name, btree) in self.indexes.iter_mut() {
+            let col_idx = self
+                .columns
+                .iter()
+                .position(|c| c == col_name)
+                .unwrap(); // 索引列一定存在
+            let val = &values[col_idx];
+            btree.entry(val.clone()).or_default().push(new_row_id);
+        }
         self.rows.push(values);
         Ok(())
     }
