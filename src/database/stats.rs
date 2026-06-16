@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Serialize, Deserialize)]
 pub struct Stats {
     counts: HashMap<String, u32>,
     threshold: u32,
@@ -13,7 +15,7 @@ impl Stats {
         }
     }
 
-    // 记录一次查询，返回是否需要建立索引的 (table_name, column_name)
+    /// 记录一次查询，返回是否需要建立索引的 (table_name, column_name)
     pub fn record_and_check(
         &mut self,
         table_name: &str,

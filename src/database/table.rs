@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+#[derive(Serialize, Deserialize)]
 pub struct Table {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
@@ -24,7 +26,7 @@ impl Table {
         Ok(())
     }
 
-    // 构建指定列的 BTreeMap 索引
+    /// 构建指定列的 BTreeMap 索引
     pub fn build_index(&mut self, column_name: &str) -> Result<(), String> {
         let col_idx = self
             .columns
