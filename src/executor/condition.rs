@@ -1,14 +1,40 @@
+use serde::{Deserialize, Serialize};
 use sqlparser::ast::*;
 use std::cmp::Ordering;
 
-/// WHERE 子句中的单个条件
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Condition {
-    pub col: String,
-    pub op: BinaryOperator,
-    pub val: String,
+    pub col: String,              // 左侧列名（可能含表别名，如 "u1.age"）
+    pub op: String,
+    pub val: String,              // 右侧值（字面量 或 列名，由 rhs_is_column 决定）
+    #[serde(default)]
+    pub rhs_is_column: bool,      // true 表示 val 是列名，false 是字面量
 }
 
-/// 递归提取 AND 连接的简单条件列表
+fn op_to_str(op: &BinaryOperator) -> &'static str {
+    match op {
+        BinaryOperator::Eq => "=",
+        BinaryOperator::NotEq => "!=",
+        BinaryOperator::Lt => "<",
+        BinaryOperator::LtEq => "<=",
+        BinaryOperator::Gt => ">",
+        BinaryOperator::GtEq => ">=",
+        _ => "unknown",
+    }
+}
+
+fn compare_with_op(op: &str, cmp: Ordering) -> bool {
+    match op {
+        "="  => cmp == Ordering::Equal,
+        "!=" => cmp != Ordering::Equal,
+        "<"  => cmp == Ordering::Less,
+        "<=" => cmp == Ordering::Less || cmp == Ordering::Equal,
+        ">"  => cmp == Ordering::Greater,
+        ">=" => cmp == Ordering::Greater || cmp == Ordering::Equal,
+        _ => false,
+    }
+}
+
 pub fn extract_conditions(expr: &Expr) -> Result<Vec<Condition>, String> {
     match expr {
         Expr::BinaryOp { left, op, right } if *op == BinaryOperator::And => {
@@ -18,75 +44,94 @@ pub fn extract_conditions(expr: &Expr) -> Result<Vec<Condition>, String> {
             Ok(left_conds)
         }
         Expr::BinaryOp { left, op, right } => {
-            let col = if let Expr::Identifier(ident) = &**left {
-                ident.value.clone()
+            let col = extract_column_name(left)?;
+            let op_str = op_to_str(op).to_string();
+
+            // 判断右侧是列还是字面量
+            if let Ok(col_name) = extract_column_name(right) {
+                // 右侧是列
+                Ok(vec![Condition {
+                    col,
+                    op: op_str,
+                    val: col_name,
+                    rhs_is_column: true,
+                }])
+            } else if let Ok(lit_val) = extract_literal_value(right) {
+                // 右侧是字面量
+                Ok(vec![Condition {
+                    col,
+                    op: op_str,
+                    val: lit_val,
+                    rhs_is_column: false,
+                }])
             } else {
-                return Err("Left side of condition must be a column".into());
-            };
-            let val = match &**right {
-                Expr::Value(ValueWithSpan { value, .. }) => match value {
-                    Value::SingleQuotedString(s) => s.clone(),
-                    Value::Number(n, _) => n.clone(),
-                    Value::Boolean(b) => b.to_string(),
-                    _ => return Err("Unsupported literal value".into()),
-                },
-                _ => return Err("Right side must be a literal".into()),
-            };
-            match op {
-                BinaryOperator::Eq
-                | BinaryOperator::NotEq
-                | BinaryOperator::Lt
-                | BinaryOperator::LtEq
-                | BinaryOperator::Gt
-                | BinaryOperator::GtEq => {}
-                _ => return Err(format!("Unsupported operator: {}", op)),
+                Err("Right side must be a literal or column".into())
             }
-            Ok(vec![Condition {
-                col,
-                op: op.clone(),
-                val,
-            }])
         }
         _ => Err("Unsupported WHERE clause format".into()),
     }
 }
 
-/// 对单行检查一个条件是否成立
-pub fn check_condition(
-    row: &[String],
-    columns: &[String],
-    cond: &Condition,
-) -> Result<bool, String> {
-    let col_idx = columns
-        .iter()
-        .position(|c| c == &cond.col)
-        .ok_or(format!("Column {} not found", cond.col))?;
-    let row_val = &row[col_idx];
-    let cmp = {
-        if let (Ok(n1), Ok(n2)) = (row_val.parse::<f64>(), cond.val.parse::<f64>()) {
-            n1.partial_cmp(&n2)
-        } else {
-            Some(row_val.cmp(&cond.val))
+fn extract_column_name(expr: &Expr) -> Result<String, String> {
+    match expr {
+        Expr::Identifier(ident) => Ok(ident.value.clone()),
+        Expr::CompoundIdentifier(parts) => {
+            let name = parts.iter()
+                .map(|p| p.value.clone())
+                .collect::<Vec<_>>()
+                .join(".");
+            Ok(name)
         }
-    };
-    match cond.op {
-        BinaryOperator::Eq => Ok(cmp == Some(Ordering::Equal)),
-        BinaryOperator::NotEq => Ok(cmp != Some(Ordering::Equal)),
-        BinaryOperator::Lt => Ok(cmp == Some(Ordering::Less)),
-        BinaryOperator::LtEq => Ok(cmp == Some(Ordering::Less) || cmp == Some(Ordering::Equal)),
-        BinaryOperator::Gt => Ok(cmp == Some(Ordering::Greater)),
-        BinaryOperator::GtEq => {
-            Ok(cmp == Some(Ordering::Greater) || cmp == Some(Ordering::Equal))
-        }
-        _ => unreachable!(),
+        _ => Err("Not a column name".into()),
     }
 }
 
-/// 通用值比较：先尝试数字，再字符串（供 ORDER BY 等使用）
+fn extract_literal_value(expr: &Expr) -> Result<String, String> {
+    match expr {
+        Expr::Value(ValueWithSpan { value, .. }) => match value {
+            Value::SingleQuotedString(s) => Ok(s.clone()),
+            Value::Number(n, _) => Ok(n.clone()),
+            Value::Boolean(b) => Ok(b.to_string()),
+            _ => Err("Unsupported literal value".into()),
+        },
+        _ => Err("Not a literal".into()),
+    }
+}
+
+/// 单表查询中的条件检查（不支持列对列，此时 rhs_is_column 必须为 false）
+pub fn check_condition(row: &[String], columns: &[String], cond: &Condition) -> Result<bool, String> {
+    if cond.rhs_is_column {
+        return Err("Column-vs-column comparison not allowed in single-table scan".into());
+    }
+    let actual_col = extract_actual_column(&cond.col);
+    let col_idx = columns.iter().position(|c| c == actual_col)
+        .ok_or(format!("Column {} not found", actual_col))?;
+    let row_val = &row[col_idx];
+    let cmp = compare_vals(row_val, &cond.val);
+    match cmp {
+        Some(ord) => Ok(compare_with_op(&cond.op, ord)),
+        None => Ok(false),
+    }
+}
+
+/// 从可能带表别名的列名中提取实际列名（取最后一段）
+pub fn extract_actual_column(full_name: &str) -> &str {
+    full_name.rfind('.').map(|pos| &full_name[pos+1..]).unwrap_or(full_name)
+}
+
+/// 比较两个字符串值，尝试按数值比较，否则按字符串比较
 pub fn compare_values(a: &str, b: &str) -> Ordering {
     if let (Ok(n1), Ok(n2)) = (a.parse::<f64>(), b.parse::<f64>()) {
         n1.partial_cmp(&n2).unwrap_or(Ordering::Equal)
     } else {
         a.cmp(b)
+    }
+}
+
+fn compare_vals(a: &str, b: &str) -> Option<Ordering> {
+    if let (Ok(n1), Ok(n2)) = (a.parse::<f64>(), b.parse::<f64>()) {
+        n1.partial_cmp(&n2)
+    } else {
+        Some(a.cmp(b))
     }
 }

@@ -1,16 +1,15 @@
 use super::ExecutionResult;
 use crate::database::Database;
+use crate::wal::WalRecord;
 use sqlparser::ast::*;
 
-pub fn execute_insert(db: &mut Database, statement: &Statement) -> Result<ExecutionResult, String> {
+pub fn execute_insert(db: &mut Database, statement: &Statement) -> Result<(ExecutionResult, Option<WalRecord>), String> {
     if let Statement::Insert(insert) = statement {
-        let table = db
-            .tables
-            .get_mut(&insert.table.to_string())
-            .ok_or("Table not found")?;
+        let table_name = insert.table.to_string();
+        let table = db.tables.get_mut(&table_name).ok_or("Table not found")?;
 
         let values = match insert.source.as_ref() {
-            Some(source) => match &*source.body {   // 解引用 Box<SetExpr>
+            Some(source) => match &*source.body {
                 SetExpr::Values(vals) => &vals.rows[0],
                 _ => return Err("Only VALUES() supported".into()),
             },
@@ -29,8 +28,12 @@ pub fn execute_insert(db: &mut Database, statement: &Statement) -> Result<Execut
             })
             .collect();
 
-        table.insert_row(row)?;
-        Ok(ExecutionResult::Insert)
+        table.insert_row(row.clone())?;
+        let wal = Some(WalRecord::Insert {
+            table: table_name,
+            values: row,
+        });
+        Ok((ExecutionResult::Insert { count: 1 }, wal))
     } else {
         Err("Not an INSERT statement".into())
     }

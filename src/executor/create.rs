@@ -1,31 +1,41 @@
-// src/executor/create.rs
 use super::ExecutionResult;
 use crate::database::Database;
-use sqlparser::ast::Statement;
+use crate::wal::WalRecord;
+use sqlparser::ast::*;
 
-pub fn execute_create(db: &mut Database, statement: &Statement) -> Result<ExecutionResult, String> {
+pub fn execute_create(db: &mut Database, statement: &Statement) -> Result<(ExecutionResult, Option<WalRecord>), String> {
     match statement {
         Statement::CreateTable(create) => {
-            let col_names: Vec<String> = create
-                .columns
-                .iter()
-                .map(|col| col.name.value.clone())
-                .collect();
-            db.add_table(&create.name.to_string(), col_names);
-            Ok(ExecutionResult::CreateTable)
+            let col_names: Vec<String> = create.columns.iter().map(|col| col.name.value.clone()).collect();
+            let name = create.name.to_string();
+            db.add_table(&name, col_names.clone());
+            let wal = Some(WalRecord::CreateTable { name, columns: col_names });
+            Ok((ExecutionResult::CreateTable, wal))
         }
         Statement::CreateIndex(create_index) => {
             let table_name = create_index.table_name.to_string();
-            let column_name = create_index
-                .columns
-                .first()
+            let column_name = create_index.columns.first()
                 .ok_or("No column specified for index")?
-                .column               // 字段是 column，不是 name
-                .to_string();         // ObjectName 可以直接 to_string 得到列名
+                .column.to_string();
             let table = db.tables.get_mut(&table_name).ok_or("Table not found")?;
             table.build_index(&column_name)?;
-            Ok(ExecutionResult::CreateIndex)
+            let wal = Some(WalRecord::CreateIndex { table: table_name, column: column_name });
+            Ok((ExecutionResult::CreateIndex, wal))
         }
         _ => Err("Unsupported CREATE statement".into()),
     }
+}
+
+pub fn execute_drop_index(
+    db: &mut Database,
+    names: &[ObjectName],
+    table_name: &Option<ObjectName>,
+) -> Result<(ExecutionResult, Option<WalRecord>), String> {
+    let idx_name = names.first().ok_or("索引名缺失")?.to_string();
+    let tbl_name = table_name.as_ref().ok_or("DROP INDEX 需要 ON table_name")?.to_string();
+
+    let table = db.tables.get_mut(&tbl_name).ok_or("Table not found")?;
+    table.drop_index(&idx_name);
+    let wal = Some(WalRecord::DropIndex { table: tbl_name, column: idx_name });
+    Ok((ExecutionResult::DropIndex, wal))
 }

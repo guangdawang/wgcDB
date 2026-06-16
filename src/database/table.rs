@@ -1,54 +1,102 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use crate::executor::condition::{Condition, check_condition};
 
 #[derive(Serialize, Deserialize)]
 pub struct Table {
     pub columns: Vec<String>,
-    pub rows: Vec<Vec<String>>,
-    pub indexes: HashMap<String, BTreeMap<String, Vec<usize>>>,
+    pub rows: BTreeMap<u64, Vec<String>>,
+    pub next_id: u64,
+    pub indexes: HashMap<String, BTreeMap<String, Vec<u64>>>,
 }
 
 impl Table {
     pub fn new(columns: Vec<String>) -> Self {
         Table {
             columns,
-            rows: Vec::new(),
+            rows: BTreeMap::new(),
+            next_id: 1,
             indexes: HashMap::new(),
         }
     }
 
-    pub fn insert_row(&mut self, values: Vec<String>) -> Result<(), String> {
+    pub fn insert_row(&mut self, values: Vec<String>) -> Result<u64, String> {
         if values.len() != self.columns.len() {
             return Err("Column count mismatch".into());
         }
-        let new_row_id = self.rows.len();
-        // 维护现有索引：将新行加入每个索引的对应值列表中
+        let id = self.next_id;
+        self.next_id += 1;
+
         for (col_name, btree) in self.indexes.iter_mut() {
-            let col_idx = self
-                .columns
-                .iter()
-                .position(|c| c == col_name)
-                .unwrap(); // 索引列一定存在
-            let val = &values[col_idx];
-            btree.entry(val.clone()).or_default().push(new_row_id);
+            if let Some(col_idx) = self.columns.iter().position(|c| c == col_name) {
+                let val = &values[col_idx];
+                btree.entry(val.clone()).or_default().push(id);
+            }
         }
-        self.rows.push(values);
-        Ok(())
+        self.rows.insert(id, values);
+        Ok(id)
     }
 
-    /// 构建指定列的 BTreeMap 索引
-    pub fn build_index(&mut self, column_name: &str) -> Result<(), String> {
-        let col_idx = self
-            .columns
-            .iter()
-            .position(|c| c == column_name)
-            .ok_or("Column not found")?;
-        let mut btree: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        for (row_id, row) in self.rows.iter().enumerate() {
-            let val = &row[col_idx];
-            btree.entry(val.clone()).or_default().push(row_id);
+    pub fn update_rows(&mut self, conditions: &[Condition], set_col: &str, set_val: &str) -> Result<usize, String> {
+        let col_idx = self.columns.iter().position(|c| c == set_col)
+            .ok_or("SET column not found")?;
+        let target_ids: Vec<u64> = self.rows.iter()
+            .filter(|(_, row)| conditions.iter().all(|c| check_condition(row, &self.columns, c).unwrap_or(false)))
+            .map(|(id, _)| *id)
+            .collect();
+
+        let count = target_ids.len();
+        for id in &target_ids {
+            if let Some(row) = self.rows.get_mut(id) {
+                let old_val = &row[col_idx];
+                let new_val = set_val.to_string();
+                if old_val == &new_val {
+                    continue;
+                }
+                if let Some(index) = self.indexes.get_mut(set_col) {
+                    if let Some(vec) = index.get_mut(old_val) {
+                        vec.retain(|&x| x != *id);
+                        if vec.is_empty() { index.remove(old_val); }
+                    }
+                    index.entry(new_val.clone()).or_default().push(*id);
+                }
+                row[col_idx] = new_val;
+            }
         }
-        self.indexes.insert(column_name.to_string(), btree);
-        Ok(())
+        Ok(count)
+    }
+
+    pub fn delete_rows(&mut self, conditions: &[Condition]) -> Result<usize, String> {
+        let ids_to_delete: Vec<u64> = self.rows.iter()
+            .filter(|(_, row)| conditions.iter().all(|c| check_condition(row, &self.columns, c).unwrap_or(false)))
+            .map(|(id, _)| *id)
+            .collect();
+
+        let count = ids_to_delete.len();
+        for id in &ids_to_delete {
+            if let Some(row) = self.rows.remove(id) {
+                for (col_name, btree) in self.indexes.iter_mut() {
+                    if let Some(col_idx) = self.columns.iter().position(|c| c == col_name) {
+                        let val = &row[col_idx];
+                        if let Some(vec) = btree.get_mut(val) {
+                            vec.retain(|&x| x != *id);
+                            if vec.is_empty() { btree.remove(val); }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    pub fn scan_with_condition(&self, conditions: &[Condition]) -> Result<(Vec<(u64, &Vec<String>)>, usize), String> {
+        let mut result = Vec::new();
+        let scanned = self.rows.len();
+        for (&id, row) in &self.rows {
+            if conditions.iter().all(|c| check_condition(row, &self.columns, c).unwrap_or(false)) {
+                result.push((id, row));
+            }
+        }
+        Ok((result, scanned))
     }
 }
