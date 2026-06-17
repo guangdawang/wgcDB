@@ -1,8 +1,8 @@
 use crate::database::Database;
-use crate::executor::condition::{extract_conditions, Condition};
+use crate::core::condition::{extract_conditions, Condition};
 use crate::executor::projection;
 use crate::executor::projection::ColumnExpr;
-use crate::executor::projection_parse;
+use crate::executor::projection::parse_projection;
 use crate::executor::ExecutionResult;
 use super::aggregate;
 use super::join;
@@ -24,7 +24,7 @@ pub fn execute_select(db: &mut Database, query: &Query) -> Result<ExecutionResul
     let order_by = &query.order_by;
     let limit_clause = &query.limit_clause;
 
-    let proj_info = projection_parse::parse_projection(projection)?;
+    let proj_info = parse_projection(projection)?;
     let table_joins = join::parse_from_clause(from)?;
 
     let conditions: Vec<Condition> = if let Some(where_expr) = selection {

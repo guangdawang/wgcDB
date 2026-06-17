@@ -2,9 +2,7 @@ mod ddl;
 mod dml;
 mod query;
 
-pub mod condition;
 pub mod projection;
-pub mod projection_parse;
 
 use crate::database::Database;
 use crate::database::wal::WalRecord;

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use crate::executor::condition::Condition;
+use crate::core::condition::Condition;
 
-/// WAL 操作类型，用于重放
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum WalRecord {
     CreateTable { name: String, columns: Vec<String> },
@@ -12,7 +11,6 @@ pub enum WalRecord {
     Delete { table: String, conditions: Vec<Condition> },
 }
 
-/// 向 WAL 文件追加一条记录
 pub fn append_record(path: &str, record: &WalRecord) -> Result<(), String> {
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
@@ -25,7 +23,6 @@ pub fn append_record(path: &str, record: &WalRecord) -> Result<(), String> {
     Ok(())
 }
 
-/// 读取 WAL 文件中的所有记录
 pub fn read_records(path: &str) -> Result<Vec<WalRecord>, String> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -44,7 +41,6 @@ pub fn read_records(path: &str) -> Result<Vec<WalRecord>, String> {
     Ok(records)
 }
 
-/// 清空 WAL 文件（做检查点时使用）
 pub fn clear(path: &str) -> Result<(), String> {
     std::fs::write(path, "").map_err(|e| format!("清空 WAL 失败: {}", e))?;
     Ok(())

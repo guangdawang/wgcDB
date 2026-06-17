@@ -1,4 +1,4 @@
-use super::condition::compare_values;
+use crate::core::condition::compare_values;
 use sqlparser::ast::*;
 
 pub struct ProjectionInfo {

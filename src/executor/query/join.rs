@@ -1,5 +1,5 @@
 use crate::database::Database;
-use crate::executor::condition::Condition;
+use crate::core::condition::Condition;
 use crate::executor::projection::ProjectionInfo;
 use std::cmp::Ordering;
 
@@ -58,8 +58,6 @@ pub fn nested_loop_join(
     }
     Ok((result, total_scanned))
 }
-
-// ---------- JOIN 辅助函数 ----------
 
 fn cartesian_product<'a>(data: &[Vec<&'a Vec<String>>]) -> Vec<Vec<&'a Vec<String>>> {
     if data.is_empty() {

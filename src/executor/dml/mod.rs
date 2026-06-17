@@ -1,6 +1,6 @@
 use crate::database::Database;
 use crate::database::wal::WalRecord;
-use crate::executor::condition::extract_conditions;
+use crate::core::condition::extract_conditions;
 use crate::executor::ExecutionResult;
 use sqlparser::ast::*;
 

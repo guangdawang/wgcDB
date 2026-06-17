@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use crate::executor::condition::{Condition, check_condition};
+use crate::core::condition::{Condition, check_condition};
 
 #[derive(Serialize, Deserialize)]
 pub struct Table {
@@ -100,7 +100,6 @@ impl Table {
         Ok((result, scanned))
     }
 
-    // ----- 以下来自原 table_index.rs -----
     pub fn build_index(&mut self, column_name: &str) -> Result<(), String> {
         let col_idx = self.columns.iter().position(|c| c == column_name)
             .ok_or("Column not found")?;

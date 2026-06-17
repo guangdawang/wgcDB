@@ -1,5 +1,5 @@
 use crate::database::Database;
-use crate::executor::condition::check_condition;
+use crate::core::condition::check_condition;
 use crate::executor::projection::{ProjectionInfo, ColumnExpr, AggregateFunction, apply_order_limit};
 use crate::executor::ExecutionResult;
 use super::join::TableRef;
@@ -9,7 +9,7 @@ use sqlparser::ast::*;
 pub fn execute_aggregate(
     db: &Database,
     table_ref: TableRef,
-    conditions: &[crate::executor::condition::Condition],
+    conditions: &[crate::core::condition::Condition],
     proj: &ProjectionInfo,
     group_by: &GroupByExpr,
     having: Option<&Expr>,
@@ -81,8 +81,6 @@ pub fn execute_aggregate(
     apply_order_limit(&mut output_rows, proj, &all_columns, order_by, limit)?;
     Ok(ExecutionResult::Select { rows: output_rows, scanned, used_index: false })
 }
-
-// ---------- 聚合辅助函数 ----------
 
 fn compute_agg(func: &AggregateFunction, rows: &[&Vec<String>], columns: &[String]) -> Result<String, String> {
     match func {
