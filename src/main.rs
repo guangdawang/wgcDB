@@ -1,6 +1,5 @@
 mod database;
 mod executor;
-mod wal;
 
 use database::Database;
 use executor::{execute_sql, ExecutionResult};
@@ -15,7 +14,7 @@ fn main() {
     });
 
     // 应用 WAL
-    match wal::read_records(WAL_FILE) {
+    match database::wal::read_records(WAL_FILE) {
         Ok(records) => {
             for rec in &records {
                 db.apply_wal_record(rec)
@@ -68,7 +67,6 @@ fn main() {
         println!("SQL: {}", sql);
         match execute_sql(&mut db, sql) {
             Ok((result, wal_opt)) => {
-                // 显式使用所有字段，消除 dead_code 警告
                 match &result {
                     ExecutionResult::Select { rows, scanned, used_index } => {
                         println!("  Select {{ rows: [...], scanned: {}, used_index: {} }}", scanned, used_index);
@@ -98,9 +96,8 @@ fn main() {
                         println!("  DropIndex");
                     }
                 }
-                // 写入 WAL
                 if let Some(rec) = wal_opt {
-                    wal::append_record(WAL_FILE, &rec)
+                    database::wal::append_record(WAL_FILE, &rec)
                         .unwrap_or_else(|e| eprintln!("WAL 写入失败: {}", e));
                 }
             }
@@ -109,8 +106,7 @@ fn main() {
         println!();
     }
 
-    // 保存快照，清空 WAL
     db.save(DB_FILE).expect("保存数据库失败");
-    wal::clear(WAL_FILE).expect("清理 WAL 失败");
+    database::wal::clear(WAL_FILE).expect("清理 WAL 失败");
     println!("数据库已保存到 {}，WAL 已清除", DB_FILE);
 }

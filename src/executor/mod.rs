@@ -3,16 +3,14 @@ mod insert;
 mod select;
 mod update;
 mod delete;
-mod aggregate;
-mod aggregate_helpers;   // 新增
-mod join;
-mod join_helpers;        // 新增
+mod aggregate;          // 合并了 aggregate_helpers
+mod join;               // 合并了 join_helpers
 pub mod condition;
 pub mod projection;
-pub mod projection_parse; // 新增（projection 子模块移出）
+pub mod projection_parse;
 
 use crate::database::Database;
-use crate::wal::WalRecord;
+use crate::database::wal::WalRecord;
 use sqlparser::ast::{ObjectType, Statement};
 
 #[derive(Debug)]

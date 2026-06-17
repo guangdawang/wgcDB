@@ -1,13 +1,14 @@
 mod stats;
 mod table;
-mod table_index;             // 新增：索引构建/删除/扫描
+mod table_index;
+pub mod wal;            // 将 wal 作为 database 的子模块
 
 pub use stats::Stats;
 pub use table::Table;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::wal::WalRecord;
+use self::wal::WalRecord;   // 现在从自身子模块引用
 
 #[derive(Serialize, Deserialize)]
 pub struct Database {
@@ -27,21 +28,18 @@ impl Database {
         self.tables.insert(name.to_string(), Table::new(columns));
     }
 
-    /// 从文件加载数据库（快照）
     pub fn load(path: &str) -> Result<Self, String> {
         let data = std::fs::read_to_string(path).map_err(|e| format!("读取文件失败: {}", e))?;
         let db: Database = serde_json::from_str(&data).map_err(|e| format!("JSON 解析失败: {}", e))?;
         Ok(db)
     }
 
-    /// 保存数据库到文件（快照）
     pub fn save(&self, path: &str) -> Result<(), String> {
         let data = serde_json::to_string_pretty(self).map_err(|e| format!("序列化失败: {}", e))?;
         std::fs::write(path, data).map_err(|e| format!("写入文件失败: {}", e))?;
         Ok(())
     }
 
-    /// 应用一条 WAL 记录到内存数据库
     pub fn apply_wal_record(&mut self, record: &WalRecord) -> Result<(), String> {
         match record {
             WalRecord::CreateTable { name, columns } => {

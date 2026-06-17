@@ -1,6 +1,6 @@
 use super::ExecutionResult;
 use crate::database::Database;
-use crate::wal::WalRecord;
+use crate::database::wal::WalRecord;
 use sqlparser::ast::*;
 
 pub fn execute_create(db: &mut Database, statement: &Statement) -> Result<(ExecutionResult, Option<WalRecord>), String> {
