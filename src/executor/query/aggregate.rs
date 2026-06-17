@@ -1,15 +1,15 @@
-use super::condition::check_condition;
-use super::projection::{ProjectionInfo, ColumnExpr, AggregateFunction, apply_order_limit};
-use super::join::TableRef;
-use super::ExecutionResult;
 use crate::database::Database;
+use crate::executor::condition::check_condition;
+use crate::executor::projection::{ProjectionInfo, ColumnExpr, AggregateFunction, apply_order_limit};
+use crate::executor::ExecutionResult;
+use super::join::TableRef;
 use std::collections::HashMap;
 use sqlparser::ast::*;
 
 pub fn execute_aggregate(
     db: &Database,
     table_ref: TableRef,
-    conditions: &[super::condition::Condition],
+    conditions: &[crate::executor::condition::Condition],
     proj: &ProjectionInfo,
     group_by: &GroupByExpr,
     having: Option<&Expr>,
@@ -82,7 +82,7 @@ pub fn execute_aggregate(
     Ok(ExecutionResult::Select { rows: output_rows, scanned, used_index: false })
 }
 
-// ---------- 以下原 aggregate_helpers 内容 ----------
+// ---------- 聚合辅助函数 ----------
 
 fn compute_agg(func: &AggregateFunction, rows: &[&Vec<String>], columns: &[String]) -> Result<String, String> {
     match func {

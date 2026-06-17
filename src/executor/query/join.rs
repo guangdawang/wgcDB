@@ -1,6 +1,6 @@
-use super::projection::ProjectionInfo;
-use super::condition::Condition;
 use crate::database::Database;
+use crate::executor::condition::Condition;
+use crate::executor::projection::ProjectionInfo;
 use std::cmp::Ordering;
 
 #[derive(Clone)]
@@ -59,7 +59,7 @@ pub fn nested_loop_join(
     Ok((result, total_scanned))
 }
 
-// ---------- 以下原 join_helpers 内容 ----------
+// ---------- JOIN 辅助函数 ----------
 
 fn cartesian_product<'a>(data: &[Vec<&'a Vec<String>>]) -> Vec<Vec<&'a Vec<String>>> {
     if data.is_empty() {
@@ -155,7 +155,7 @@ fn build_join_output(
     table_info: &[(Option<String>, Vec<String>)],
     proj: &ProjectionInfo,
 ) -> Result<Vec<String>, String> {
-    use super::projection::ColumnExpr;
+    use crate::executor::projection::ColumnExpr;
     if proj.is_wildcard {
         let mut out = Vec::new();
         for row in rows {

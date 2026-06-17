@@ -1,10 +1,7 @@
-mod create;
-mod insert;
-mod select;
-mod update;
-mod delete;
-mod aggregate;          // 合并了 aggregate_helpers
-mod join;               // 合并了 join_helpers
+mod ddl;
+mod dml;
+mod query;
+
 pub mod condition;
 pub mod projection;
 pub mod projection_parse;
@@ -35,16 +32,16 @@ pub fn execute_sql(db: &mut Database, sql: &str) -> Result<(ExecutionResult, Opt
 
     match &ast[0] {
         Statement::Query(query) => {
-            let res = select::execute_select(db, query)?;
+            let res = query::execute_select(db, query)?;
             Ok((res, None))
         }
-        Statement::Insert(_) => insert::execute_insert(db, &ast[0]),
-        Statement::Update(_) => update::execute_update(db, &ast[0]),
-        Statement::Delete(_) => delete::execute_delete(db, &ast[0]),
-        Statement::CreateTable(_) | Statement::CreateIndex(_) => create::execute_create(db, &ast[0]),
+        Statement::Insert(_) => dml::execute_insert(db, &ast[0]),
+        Statement::Update(_) => dml::execute_update(db, &ast[0]),
+        Statement::Delete(_) => dml::execute_delete(db, &ast[0]),
+        Statement::CreateTable(_) | Statement::CreateIndex(_) => ddl::execute_create(db, &ast[0]),
         Statement::Drop { object_type, names, table, .. } => {
             if *object_type == ObjectType::Index {
-                create::execute_drop_index(db, names, table)
+                ddl::execute_drop_index(db, names, table)
             } else {
                 Err("Only DROP INDEX is supported".into())
             }

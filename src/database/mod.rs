@@ -1,14 +1,13 @@
 mod stats;
 mod table;
-mod table_index;
-pub mod wal;            // 将 wal 作为 database 的子模块
+pub mod wal;
 
 pub use stats::Stats;
 pub use table::Table;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use self::wal::WalRecord;   // 现在从自身子模块引用
+use self::wal::WalRecord;
 
 #[derive(Serialize, Deserialize)]
 pub struct Database {
