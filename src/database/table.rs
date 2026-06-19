@@ -1,3 +1,4 @@
+// src/database/table.rs
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use crate::core::condition::{Condition, check_condition};
@@ -7,7 +8,9 @@ pub struct Table {
     pub columns: Vec<String>,
     pub rows: BTreeMap<u64, Vec<String>>,
     pub next_id: u64,
-    pub indexes: HashMap<String, BTreeMap<String, Vec<u64>>>,
+    pub indexes: HashMap<String, BTreeMap<String, Vec<u64>>>, // key = 列名
+    #[serde(default)]
+    pub index_name_to_col: HashMap<String, String>,            // 索引名 -> 列名
 }
 
 impl Table {
@@ -17,6 +20,7 @@ impl Table {
             rows: BTreeMap::new(),
             next_id: 1,
             indexes: HashMap::new(),
+            index_name_to_col: HashMap::new(),
         }
     }
 
@@ -100,7 +104,8 @@ impl Table {
         Ok((result, scanned))
     }
 
-    pub fn build_index(&mut self, column_name: &str) -> Result<(), String> {
+    /// 构建索引，需要索引名和列名
+    pub fn build_index(&mut self, index_name: &str, column_name: &str) -> Result<(), String> {
         let col_idx = self.columns.iter().position(|c| c == column_name)
             .ok_or("Column not found")?;
         let mut btree: BTreeMap<String, Vec<u64>> = BTreeMap::new();
@@ -109,11 +114,21 @@ impl Table {
             btree.entry(val.clone()).or_default().push(id);
         }
         self.indexes.insert(column_name.to_string(), btree);
+        self.index_name_to_col.insert(index_name.to_string(), column_name.to_string());
         Ok(())
     }
 
-    pub fn drop_index(&mut self, column_name: &str) {
-        self.indexes.remove(column_name);
+    /// 删除索引，优先按索引名查找，失败则按列名尝试
+    pub fn drop_index(&mut self, name: &str) {
+        // 先按列名删除
+        if self.indexes.remove(name).is_some() {
+            self.index_name_to_col.retain(|_, col| col != name);
+            return;
+        }
+        // 再尝试作为索引名删除
+        if let Some(col) = self.index_name_to_col.remove(name) {
+            self.indexes.remove(&col);
+        }
     }
 
     pub fn scan_with_index(&self, cond: &Condition) -> Option<(Vec<(u64, &Vec<String>)>, usize)> {

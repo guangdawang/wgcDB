@@ -1,3 +1,4 @@
+// src/executor/ddl/mod.rs
 use crate::database::Database;
 use crate::database::wal::WalRecord;
 use crate::executor::ExecutionResult;
@@ -13,12 +14,16 @@ pub fn execute_create(db: &mut Database, statement: &Statement) -> Result<(Execu
             Ok((ExecutionResult::CreateTable, wal))
         }
         Statement::CreateIndex(create_index) => {
+            let index_name = create_index.name
+                .as_ref()
+                .expect("CREATE INDEX 必须有索引名")
+                .to_string();
             let table_name = create_index.table_name.to_string();
             let column_name = create_index.columns.first()
                 .ok_or("No column specified for index")?
                 .column.to_string();
             let table = db.tables.get_mut(&table_name).ok_or("Table not found")?;
-            table.build_index(&column_name)?;
+            table.build_index(&index_name, &column_name)?;
             let wal = Some(WalRecord::CreateIndex { table: table_name, column: column_name });
             Ok((ExecutionResult::CreateIndex, wal))
         }

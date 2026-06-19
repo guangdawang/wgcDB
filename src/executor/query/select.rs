@@ -1,3 +1,4 @@
+// src/executor/query/select.rs
 use crate::database::Database;
 use crate::core::condition::{extract_conditions, Condition};
 use crate::executor::projection;
@@ -102,7 +103,8 @@ pub fn execute_select(db: &mut Database, query: &Query) -> Result<ExecutionResul
                 if let Some((tbl, col)) = hint {
                     if let Some(t) = db.tables.get_mut(&tbl) {
                         if !t.indexes.contains_key(&col) {
-                            t.build_index(&col)?;
+                            // 自动创建索引时，索引名等于列名
+                            t.build_index(&col, &col)?;
                             println!("⚡ 自动创建索引: {}.{}", tbl, col);
                         }
                     }

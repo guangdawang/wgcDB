@@ -1,3 +1,4 @@
+// src/database/mod.rs
 mod stats;
 mod table;
 pub mod wal;
@@ -49,7 +50,8 @@ impl Database {
             WalRecord::CreateIndex { table, column } => {
                 if let Some(tbl) = self.tables.get_mut(table) {
                     if !tbl.indexes.contains_key(column) {
-                        tbl.build_index(column)?;
+                        // 使用列名作为索引名（WAL 目前不存储索引名，后续可扩展）
+                        tbl.build_index(column, column)?;
                     }
                 }
             }
