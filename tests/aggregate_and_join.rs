@@ -14,12 +14,10 @@ fn init_db() -> Database {
 #[test]
 fn group_by_with_having() {
     let mut db = init_db();
-    // 先做同样的更新和删除，使数据状态与原始场景一致
     execute_sql(&mut db, "UPDATE users SET age = 99 WHERE name = 'Alice'").unwrap();
     execute_sql(&mut db, "DELETE FROM users WHERE age < 25").unwrap();
 
-    let sql = "SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 2";
-    let (res, _) = execute_sql(&mut db, sql).unwrap();
+    let res = execute_sql(&mut db, "SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 2").unwrap();
     match res {
         ExecutionResult::Select { rows, .. } => {
             assert_eq!(rows.len(), 21);
@@ -35,9 +33,7 @@ fn group_by_with_having() {
 #[test]
 fn self_join_limit() {
     let mut db = init_db();
-    // 使用未修改的原始数据测试自连接，避免状态依赖
-    let sql = "SELECT u1.name, u2.name FROM users u1, users u2 WHERE u1.age = u2.age AND u1.id < u2.id LIMIT 5";
-    let (res, _) = execute_sql(&mut db, sql).unwrap();
+    let res = execute_sql(&mut db, "SELECT u1.name, u2.name FROM users u1, users u2 WHERE u1.age = u2.age AND u1.id < u2.id LIMIT 5").unwrap();
     match res {
         ExecutionResult::Select { rows, .. } => {
             assert_eq!(rows.len(), 5);

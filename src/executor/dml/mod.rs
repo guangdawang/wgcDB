@@ -1,14 +1,11 @@
-use crate::database::Database;
-use crate::database::wal::WalRecord;
 use crate::core::condition::extract_conditions;
-use crate::executor::ExecutionResult;
+use crate::database::wal::WalRecord;
 use sqlparser::ast::*;
 
-pub fn execute_insert(db: &mut Database, statement: &Statement) -> Result<(ExecutionResult, Option<WalRecord>), String> {
+/// 从 INSERT 语句生成 WalRecord（不修改数据库）
+pub fn make_insert_record(statement: &Statement) -> Result<WalRecord, String> {
     if let Statement::Insert(insert) = statement {
         let table_name = insert.table.to_string();
-        let table = db.tables.get_mut(&table_name).ok_or("Table not found")?;
-
         let values = match insert.source.as_ref() {
             Some(source) => match &*source.body {
                 SetExpr::Values(vals) => &vals.rows[0],
@@ -16,7 +13,6 @@ pub fn execute_insert(db: &mut Database, statement: &Statement) -> Result<(Execu
             },
             None => return Err("Missing source".into()),
         };
-
         let row: Vec<String> = values
             .iter()
             .map(|v| match v {
@@ -28,19 +24,15 @@ pub fn execute_insert(db: &mut Database, statement: &Statement) -> Result<(Execu
                 _ => "NULL".to_string(),
             })
             .collect();
-
-        table.insert_row(row.clone())?;
-        let wal = Some(WalRecord::Insert {
-            table: table_name,
-            values: row,
-        });
-        Ok((ExecutionResult::Insert { count: 1 }, wal))
+        // id 会在实际执行时分配，这里暂不填，用 0 占位，apply 时再分配
+        Ok(WalRecord::Insert { table: table_name, id: 0, values: row })
     } else {
         Err("Not an INSERT statement".into())
     }
 }
 
-pub fn execute_update(db: &mut Database, statement: &Statement) -> Result<(ExecutionResult, Option<WalRecord>), String> {
+/// 从 UPDATE 语句生成 WalRecord（不修改数据库）
+pub fn make_update_record(statement: &Statement) -> Result<WalRecord, String> {
     if let Statement::Update(update) = statement {
         let table_name = update.table.to_string();
         let set_col = match &update.assignments[0].target {
@@ -60,19 +52,19 @@ pub fn execute_update(db: &mut Database, statement: &Statement) -> Result<(Execu
         } else {
             vec![]
         };
-
-        let updated = db.tables.get_mut(&table_name)
-            .ok_or("Table not found")?
-            .update_rows(&conditions, &set_col, &set_val)?;
-
-        let wal = Some(WalRecord::Update { table: table_name, conditions, set_col, set_val });
-        Ok((ExecutionResult::Update { count: updated }, wal))
+        Ok(WalRecord::Update {
+            table: table_name,
+            conditions,
+            set_col,
+            set_val,
+        })
     } else {
         Err("Not an UPDATE statement".into())
     }
 }
 
-pub fn execute_delete(db: &mut Database, statement: &Statement) -> Result<(ExecutionResult, Option<WalRecord>), String> {
+/// 从 DELETE 语句生成 WalRecord
+pub fn make_delete_record(statement: &Statement) -> Result<WalRecord, String> {
     if let Statement::Delete(delete) = statement {
         let table_name = if !delete.tables.is_empty() {
             delete.tables[0].to_string()
@@ -89,19 +81,12 @@ pub fn execute_delete(db: &mut Database, statement: &Statement) -> Result<(Execu
                 }
             }
         };
-
         let conditions = if let Some(where_expr) = &delete.selection {
             extract_conditions(where_expr)?
         } else {
             vec![]
         };
-
-        let deleted = db.tables.get_mut(&table_name)
-            .ok_or("Table not found")?
-            .delete_rows(&conditions)?;
-
-        let wal = Some(WalRecord::Delete { table: table_name, conditions });
-        Ok((ExecutionResult::Delete { count: deleted }, wal))
+        Ok(WalRecord::Delete { table: table_name, conditions })
     } else {
         Err("Not a DELETE statement".into())
     }

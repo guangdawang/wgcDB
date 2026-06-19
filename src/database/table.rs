@@ -8,9 +8,9 @@ pub struct Table {
     pub columns: Vec<String>,
     pub rows: BTreeMap<u64, Vec<String>>,
     pub next_id: u64,
-    pub indexes: HashMap<String, BTreeMap<String, Vec<u64>>>, // key = 列名
+    pub indexes: HashMap<String, BTreeMap<String, Vec<u64>>>,
     #[serde(default)]
-    pub index_name_to_col: HashMap<String, String>,            // 索引名 -> 列名
+    pub index_name_to_col: HashMap<String, String>,
 }
 
 impl Table {
@@ -24,13 +24,30 @@ impl Table {
         }
     }
 
+    /// 普通插入（自增 id），返回新 id
     pub fn insert_row(&mut self, values: Vec<String>) -> Result<u64, String> {
         if values.len() != self.columns.len() {
             return Err("Column count mismatch".into());
         }
         let id = self.next_id;
         self.next_id += 1;
+        self.insert_row_with_id(id, values)?;
+        Ok(id)
+    }
 
+    /// 使用指定 id 插入（用于 WAL 重放）
+    pub fn insert_row_with_id(&mut self, id: u64, values: Vec<String>) -> Result<(), String> {
+        if values.len() != self.columns.len() {
+            return Err("Column count mismatch".into());
+        }
+        // 如果 id 已存在（重放时），忽略
+        if self.rows.contains_key(&id) {
+            return Ok(());
+        }
+        // 更新 next_id，保证后续自增不冲突
+        if id >= self.next_id {
+            self.next_id = id + 1;
+        }
         for (col_name, btree) in self.indexes.iter_mut() {
             if let Some(col_idx) = self.columns.iter().position(|c| c == col_name) {
                 let val = &values[col_idx];
@@ -38,7 +55,7 @@ impl Table {
             }
         }
         self.rows.insert(id, values);
-        Ok(id)
+        Ok(())
     }
 
     pub fn update_rows(&mut self, conditions: &[Condition], set_col: &str, set_val: &str) -> Result<usize, String> {
@@ -104,7 +121,6 @@ impl Table {
         Ok((result, scanned))
     }
 
-    /// 构建索引，需要索引名和列名
     pub fn build_index(&mut self, index_name: &str, column_name: &str) -> Result<(), String> {
         let col_idx = self.columns.iter().position(|c| c == column_name)
             .ok_or("Column not found")?;
@@ -118,14 +134,11 @@ impl Table {
         Ok(())
     }
 
-    /// 删除索引，优先按索引名查找，失败则按列名尝试
     pub fn drop_index(&mut self, name: &str) {
-        // 先按列名删除
         if self.indexes.remove(name).is_some() {
             self.index_name_to_col.retain(|_, col| col != name);
             return;
         }
-        // 再尝试作为索引名删除
         if let Some(col) = self.index_name_to_col.remove(name) {
             self.indexes.remove(&col);
         }

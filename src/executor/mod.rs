@@ -5,7 +5,6 @@ mod query;
 pub mod projection;
 
 use crate::database::Database;
-use crate::database::wal::WalRecord;
 use sqlparser::ast::{ObjectType, Statement};
 
 #[derive(Debug)]
@@ -17,9 +16,14 @@ pub enum ExecutionResult {
     CreateTable,
     CreateIndex,
     DropIndex,
+    /// 显式事务中暂存的操作，无实际影响
+    Pending,
+    BeginTransaction,
+    CommitTransaction,
+    RollbackTransaction,
 }
 
-pub fn execute_sql(db: &mut Database, sql: &str) -> Result<(ExecutionResult, Option<WalRecord>), String> {
+pub fn execute_sql(db: &mut Database, sql: &str) -> Result<ExecutionResult, String> {
     let dialect = sqlparser::dialect::GenericDialect {};
     let ast = sqlparser::parser::Parser::parse_sql(&dialect, sql)
         .map_err(|e| format!("Parse error: {e}"))?;
@@ -28,22 +32,47 @@ pub fn execute_sql(db: &mut Database, sql: &str) -> Result<(ExecutionResult, Opt
         return Err("Only one statement per call is supported".into());
     }
 
-    match &ast[0] {
-        Statement::Query(query) => {
-            let res = query::execute_select(db, query)?;
-            Ok((res, None))
+    let statement = &ast[0];
+
+    // 事务控制
+    match statement {
+        Statement::StartTransaction { .. } => {
+            db.begin_transaction()?;
+            return Ok(ExecutionResult::BeginTransaction);
         }
-        Statement::Insert(_) => dml::execute_insert(db, &ast[0]),
-        Statement::Update(_) => dml::execute_update(db, &ast[0]),
-        Statement::Delete(_) => dml::execute_delete(db, &ast[0]),
-        Statement::CreateTable(_) | Statement::CreateIndex(_) => ddl::execute_create(db, &ast[0]),
-        Statement::Drop { object_type, names, table, .. } => {
-            if *object_type == ObjectType::Index {
-                ddl::execute_drop_index(db, names, table)
-            } else {
-                Err("Only DROP INDEX is supported".into())
-            }
+        Statement::Commit { .. } => {
+            db.commit_transaction()?;
+            return Ok(ExecutionResult::CommitTransaction);
         }
-        _ => Err("Unsupported statement".into()),
+        Statement::Rollback { chain: _, .. } => {
+            // sqlparser 中 Rollback 的语法包括 chain 等，这里忽略
+            db.rollback_transaction()?;
+            return Ok(ExecutionResult::RollbackTransaction);
+        }
+        _ => {}
     }
+
+    // 查询语句（即使在事务中也直接基于当前已提交数据执行）
+    if let Statement::Query(query) = statement {
+        return query::execute_select(db, query);
+    }
+
+    // 构造写操作记录
+    let record = match statement {
+        Statement::Insert(_) => dml::make_insert_record(statement)?,
+        Statement::Update(_) => dml::make_update_record(statement)?,
+        Statement::Delete(_) => dml::make_delete_record(statement)?,
+        Statement::CreateTable(_) | Statement::CreateIndex(_) => {
+            ddl::make_create_record(statement)?
+        }
+        Statement::Drop { object_type, names, table, .. }
+            if *object_type == ObjectType::Index =>
+        {
+            ddl::make_drop_index_record(names, table)?
+        }
+        _ => return Err("Unsupported statement".into()),
+    };
+
+    // 统一交给 Database::handle_write 处理（事务感知）
+    db.handle_write(record)
 }

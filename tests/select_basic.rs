@@ -14,7 +14,7 @@ fn init_db() -> Database {
 #[test]
 fn select_all_where_name_eq_alice() {
     let mut db = init_db();
-    let (res, _) = execute_sql(&mut db, "SELECT * FROM users WHERE name = 'Alice'").unwrap();
+    let res = execute_sql(&mut db, "SELECT * FROM users WHERE name = 'Alice'").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, used_index } => {
             assert_eq!(rows.len(), 200);
@@ -29,7 +29,7 @@ fn select_all_where_name_eq_alice() {
 #[test]
 fn select_with_multiple_conditions() {
     let mut db = init_db();
-    let (res, _) = execute_sql(&mut db, "SELECT id, name FROM users WHERE age > 40 AND name = 'Bob'").unwrap();
+    let res = execute_sql(&mut db, "SELECT id, name FROM users WHERE age > 40 AND name = 'Bob'").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, .. } => {
             assert_eq!(rows.len(), 66);
@@ -43,7 +43,7 @@ fn select_with_multiple_conditions() {
 #[test]
 fn select_range() {
     let mut db = init_db();
-    let (res, _) = execute_sql(&mut db, "SELECT * FROM users WHERE age >= 30 AND age < 40").unwrap();
+    let res = execute_sql(&mut db, "SELECT * FROM users WHERE age >= 30 AND age < 40").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, .. } => {
             assert_eq!(rows.len(), 330);
@@ -56,7 +56,7 @@ fn select_range() {
 #[test]
 fn order_by_and_limit() {
     let mut db = init_db();
-    let (res, _) = execute_sql(&mut db, "SELECT * FROM users ORDER BY age DESC LIMIT 3").unwrap();
+    let res = execute_sql(&mut db, "SELECT * FROM users ORDER BY age DESC LIMIT 3").unwrap();
     match res {
         ExecutionResult::Select { rows, .. } => {
             assert_eq!(rows.len(), 3);

@@ -15,7 +15,7 @@ fn init_db() -> Database {
 fn create_index_and_query() {
     let mut db = init_db();
     execute_sql(&mut db, "CREATE INDEX idx_age ON users (age)").unwrap();
-    let (res, _) = execute_sql(&mut db, "SELECT * FROM users WHERE age = 25").unwrap();
+    let res = execute_sql(&mut db, "SELECT * FROM users WHERE age = 25").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, used_index } => {
             assert_eq!(rows.len(), 34);
@@ -31,14 +31,12 @@ fn drop_index_by_name() {
     let mut db = init_db();
     execute_sql(&mut db, "CREATE INDEX idx_age ON users (age)").unwrap();
     execute_sql(&mut db, "DROP INDEX idx_age ON users").unwrap();
-
-    // 查询应该不再使用索引，且结果应为 34 行（age=25 未被修改）
-    let (res, _) = execute_sql(&mut db, "SELECT * FROM users WHERE age = 25").unwrap();
+    let res = execute_sql(&mut db, "SELECT * FROM users WHERE age = 25").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, used_index } => {
             assert_eq!(rows.len(), 34);
-            assert!(!used_index);          // 索引已删除
-            assert_eq!(scanned, 1000);     // 全表扫描
+            assert!(!used_index);
+            assert_eq!(scanned, 1000);
         }
         _ => panic!("预期 Select"),
     }
