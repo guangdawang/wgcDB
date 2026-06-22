@@ -1,15 +1,6 @@
-use wgc_db::{execute_sql, ExecutionResult, Database};
-
-fn init_db() -> Database {
-    let mut db = Database::new(5);
-    execute_sql(&mut db, "CREATE TABLE users (id INT, name TEXT, age INT)").unwrap();
-    let names = ["Alice", "Bob", "Charlie", "Diana", "Eve"];
-    for i in 0..1000 {
-        let sql = format!("INSERT INTO users VALUES ('{}', '{}', '{}')", i, names[i % names.len()], 20 + (i % 30));
-        execute_sql(&mut db, &sql).unwrap();
-    }
-    db
-}
+mod common;
+use common::init_db;
+use wgc_db::{execute_sql, ExecutionResult};
 
 #[test]
 fn group_by_with_having() {
@@ -17,7 +8,9 @@ fn group_by_with_having() {
     execute_sql(&mut db, "UPDATE users SET age = 99 WHERE name = 'Alice'").unwrap();
     execute_sql(&mut db, "DELETE FROM users WHERE age < 25").unwrap();
 
-    let res = execute_sql(&mut db, "SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 2").unwrap();
+    let res =
+        execute_sql(&mut db, "SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 2")
+            .unwrap();
     match res {
         ExecutionResult::Select { rows, .. } => {
             assert_eq!(rows.len(), 21);
@@ -33,7 +26,11 @@ fn group_by_with_having() {
 #[test]
 fn self_join_limit() {
     let mut db = init_db();
-    let res = execute_sql(&mut db, "SELECT u1.name, u2.name FROM users u1, users u2 WHERE u1.age = u2.age AND u1.id < u2.id LIMIT 5").unwrap();
+    let res = execute_sql(
+        &mut db,
+        "SELECT u1.name, u2.name FROM users u1, users u2 WHERE u1.age = u2.age AND u1.id < u2.id LIMIT 5",
+    )
+    .unwrap();
     match res {
         ExecutionResult::Select { rows, .. } => {
             assert_eq!(rows.len(), 5);

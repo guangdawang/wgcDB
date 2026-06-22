@@ -1,15 +1,6 @@
-use wgc_db::{execute_sql, ExecutionResult, Database};
-
-fn init_db() -> Database {
-    let mut db = Database::new(5);
-    execute_sql(&mut db, "CREATE TABLE users (id INT, name TEXT, age INT)").unwrap();
-    let names = ["Alice", "Bob", "Charlie", "Diana", "Eve"];
-    for i in 0..1000 {
-        let sql = format!("INSERT INTO users VALUES ('{}', '{}', '{}')", i, names[i % names.len()], 20 + (i % 30));
-        execute_sql(&mut db, &sql).unwrap();
-    }
-    db
-}
+mod common;
+use common::init_db;
+use wgc_db::{execute_sql, ExecutionResult};
 
 #[test]
 fn update_and_verify() {

@@ -1,15 +1,6 @@
-use wgc_db::{execute_sql, ExecutionResult, Database};
-
-fn init_db() -> Database {
-    let mut db = Database::new(5);
-    execute_sql(&mut db, "CREATE TABLE users (id INT, name TEXT, age INT)").unwrap();
-    let names = ["Alice", "Bob", "Charlie", "Diana", "Eve"];
-    for i in 0..1000 {
-        let sql = format!("INSERT INTO users VALUES ('{}', '{}', '{}')", i, names[i % names.len()], 20 + (i % 30));
-        execute_sql(&mut db, &sql).unwrap();
-    }
-    db
-}
+mod common;
+use common::init_db;
+use wgc_db::{execute_sql, ExecutionResult};
 
 #[test]
 fn create_index_and_query() {
@@ -17,7 +8,11 @@ fn create_index_and_query() {
     execute_sql(&mut db, "CREATE INDEX idx_age ON users (age)").unwrap();
     let res = execute_sql(&mut db, "SELECT * FROM users WHERE age = 25").unwrap();
     match res {
-        ExecutionResult::Select { rows, scanned, used_index } => {
+        ExecutionResult::Select {
+            rows,
+            scanned,
+            used_index,
+        } => {
             assert_eq!(rows.len(), 34);
             assert!(used_index);
             assert_eq!(scanned, rows.len());
@@ -33,7 +28,11 @@ fn drop_index_by_name() {
     execute_sql(&mut db, "DROP INDEX idx_age ON users").unwrap();
     let res = execute_sql(&mut db, "SELECT * FROM users WHERE age = 25").unwrap();
     match res {
-        ExecutionResult::Select { rows, scanned, used_index } => {
+        ExecutionResult::Select {
+            rows,
+            scanned,
+            used_index,
+        } => {
             assert_eq!(rows.len(), 34);
             assert!(!used_index);
             assert_eq!(scanned, 1000);

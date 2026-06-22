@@ -1,22 +1,17 @@
-use wgc_db::{execute_sql, ExecutionResult, Database};
-
-fn init_db() -> Database {
-    let mut db = Database::new(5);
-    execute_sql(&mut db, "CREATE TABLE users (id INT, name TEXT, age INT)").unwrap();
-    let names = ["Alice", "Bob", "Charlie", "Diana", "Eve"];
-    for i in 0..1000 {
-        let sql = format!("INSERT INTO users VALUES ('{}', '{}', '{}')", i, names[i % names.len()], 20 + (i % 30));
-        execute_sql(&mut db, &sql).unwrap();
-    }
-    db
-}
+mod common;
+use common::init_db;
+use wgc_db::{execute_sql, ExecutionResult};
 
 #[test]
 fn select_all_where_name_eq_alice() {
     let mut db = init_db();
     let res = execute_sql(&mut db, "SELECT * FROM users WHERE name = 'Alice'").unwrap();
     match res {
-        ExecutionResult::Select { rows, scanned, used_index } => {
+        ExecutionResult::Select {
+            rows,
+            scanned,
+            used_index,
+        } => {
             assert_eq!(rows.len(), 200);
             assert_eq!(scanned, 1000);
             assert!(!used_index);
@@ -29,7 +24,8 @@ fn select_all_where_name_eq_alice() {
 #[test]
 fn select_with_multiple_conditions() {
     let mut db = init_db();
-    let res = execute_sql(&mut db, "SELECT id, name FROM users WHERE age > 40 AND name = 'Bob'").unwrap();
+    let res =
+        execute_sql(&mut db, "SELECT id, name FROM users WHERE age > 40 AND name = 'Bob'").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, .. } => {
             assert_eq!(rows.len(), 66);
@@ -43,7 +39,8 @@ fn select_with_multiple_conditions() {
 #[test]
 fn select_range() {
     let mut db = init_db();
-    let res = execute_sql(&mut db, "SELECT * FROM users WHERE age >= 30 AND age < 40").unwrap();
+    let res =
+        execute_sql(&mut db, "SELECT * FROM users WHERE age >= 30 AND age < 40").unwrap();
     match res {
         ExecutionResult::Select { rows, scanned, .. } => {
             assert_eq!(rows.len(), 330);
