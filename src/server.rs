@@ -4,7 +4,7 @@ use std::net::{TcpListener, TcpStream};
 
 use wgc_db::{database, Database};
 
-const DB_FILE: &str = "wgc_db.json";
+const DB_FILE: &str = "wgcDB";
 const WAL_FILE: &str = "wgc_db.wal";
 
 pub fn run(port: u16) {

@@ -1,5 +1,7 @@
+// src/database/wal.rs
 use serde::{Deserialize, Serialize};
 use crate::core::condition::Condition;
+use std::io::{Read, Write};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum WalRecord {
@@ -15,37 +17,47 @@ pub enum WalRecord {
 }
 
 pub fn append_record(path: &str, record: &WalRecord) -> Result<(), String> {
-    use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(|e| format!("打开 WAL 失败: {}", e))?;
-    let line = serde_json::to_string(record).map_err(|e| format!("序列化 WAL 记录失败: {}", e))?;
-    writeln!(file, "{}", line).map_err(|e| format!("写入 WAL 失败: {}", e))?;
+
+    let bytes = bincode::serde::encode_to_vec(record, bincode::config::standard())
+        .map_err(|e| format!("序列化 WAL 记录失败: {}", e))?;
+    let len = bytes.len() as u32;
+    file.write_all(&len.to_be_bytes()).map_err(|e| format!("写入 WAL 长度失败: {}", e))?;
+    file.write_all(&bytes).map_err(|e| format!("写入 WAL 数据失败: {}", e))?;
     file.flush().map_err(|e| format!("刷新 WAL 失败: {}", e))?;
     Ok(())
 }
 
 pub fn read_records(path: &str) -> Result<Vec<WalRecord>, String> {
-    let content = match std::fs::read_to_string(path) {
+    let data = match std::fs::read(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("读取 WAL 失败: {}", e)),
     };
+
     let mut records = Vec::new();
-    for line in content.lines() {
-        if line.trim().is_empty() {
-            continue;
+    let mut cursor = std::io::Cursor::new(&data[..]);
+    loop {
+        let mut len_buf = [0u8; 4];
+        if cursor.read_exact(&mut len_buf).is_err() {
+            break;
         }
-        let rec: WalRecord =
-            serde_json::from_str(line).map_err(|e| format!("解析 WAL 记录失败: {}", e))?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+        let mut record_buf = vec![0u8; len];
+        if cursor.read_exact(&mut record_buf).is_err() {
+            break;
+        }
+        let (rec, _) = bincode::serde::decode_from_slice(&record_buf, bincode::config::standard())
+            .map_err(|e| format!("解析 WAL 记录失败: {}", e))?;
         records.push(rec);
     }
     Ok(records)
 }
 
-/// 按事务重放 WAL：只应用完整的事务（Begin … Commit）
 pub fn replay_wal(path: &str, db: &mut crate::Database) -> Result<(), String> {
     let records = read_records(path)?;
     let mut transaction: Vec<WalRecord> = Vec::new();

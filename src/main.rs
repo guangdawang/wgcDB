@@ -4,7 +4,7 @@ mod server;   // 新增
 use wgc_db::database;
 use wgc_db::Database;
 
-const DB_FILE: &str = "wgc_db.json";
+const DB_FILE: &str = "wgcDB";
 const WAL_FILE: &str = "wgc_db.wal";
 const SERVER_PORT: u16 = 9995;
 

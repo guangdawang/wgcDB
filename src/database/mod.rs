@@ -43,13 +43,15 @@ impl Database {
     }
 
     pub fn load(path: &str) -> Result<Self, String> {
-        let data = std::fs::read_to_string(path).map_err(|e| format!("读取文件失败: {}", e))?;
-        let db: Database = serde_json::from_str(&data).map_err(|e| format!("JSON 解析失败: {}", e))?;
+        let data = std::fs::read(path).map_err(|e| format!("读取文件失败: {}", e))?;
+        let (db, _) = bincode::serde::decode_from_slice(&data, bincode::config::standard())
+            .map_err(|e| format!("二进制反序列化失败: {}", e))?;
         Ok(db)
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {
-        let data = serde_json::to_string_pretty(self).map_err(|e| format!("序列化失败: {}", e))?;
+        let data = bincode::serde::encode_to_vec(self, bincode::config::standard())
+            .map_err(|e| format!("序列化失败: {}", e))?;
         std::fs::write(path, data).map_err(|e| format!("写入文件失败: {}", e))?;
         Ok(())
     }
