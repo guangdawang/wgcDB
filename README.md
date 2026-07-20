@@ -1,6 +1,5 @@
 # WgcDB
 
 ```bash
-cargo test
-cargo run
+cargo test && cargo run
 ```

@@ -5,9 +5,10 @@ mod query;
 pub mod projection;
 
 use crate::database::Database;
+use serde::Serialize;                    // <-- 新增
 use sqlparser::ast::{ObjectType, Statement};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]              // <-- 添加 Serialize
 pub enum ExecutionResult {
     Select { rows: Vec<Vec<String>>, scanned: usize, used_index: bool },
     Insert { count: usize },
